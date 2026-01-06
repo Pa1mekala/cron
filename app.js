@@ -18,6 +18,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function runOnce(attempt) {
   console.log(`\n🚀 Attempt ${attempt}`);
 
+  // 1️⃣ POST request
   const postRes = await fetch(POST_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -34,25 +35,30 @@ async function runOnce(attempt) {
   const postText = await postRes.text();
   const match = postText.match(/"event_id":"([^"]+)"/);
 
-  if (!match) throw new Error("No EVENT_ID returned");
+  if (!match) {
+    throw new Error("No EVENT_ID returned");
+  }
 
   const EVENT_ID = match[1];
   console.log("✅ EVENT_ID:", EVENT_ID);
+  console.log("⏳ Waiting for stream data...");
 
+  // 2️⃣ Stream (Node.js-compatible)
   const streamRes = await fetch(`${POST_URL}/${EVENT_ID}`);
-  const reader = streamRes.body.getReader();
   const decoder = new TextDecoder();
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  let buffer = "";
 
-    const chunk = decoder.decode(value, { stream: true });
-    const events = chunk.split("\n\n").filter(Boolean);
+  for await (const chunk of streamRes.body) {
+    const text = decoder.decode(chunk);
+    buffer += text;
+
+    const events = buffer.split("\n\n");
+    buffer = events.pop(); // keep incomplete chunk
 
     for (const e of events) {
       if (e.includes("event: error")) {
-        throw new Error("Gradio error event");
+        throw new Error("Gradio returned error event");
       }
 
       if (e.includes("event: data") && e.includes("path")) {
@@ -78,7 +84,7 @@ async function runWithRetry() {
       console.error(`❌ Attempt ${i} failed:`, err.message);
 
       if (i === MAX_RETRIES) {
-        console.error("\n🛑 Max retries reached");
+        console.error("\n🛑 Max retries reached. Exiting.");
         process.exit(1);
       }
 
@@ -88,4 +94,5 @@ async function runWithRetry() {
   }
 }
 
+// Start execution
 runWithRetry();
