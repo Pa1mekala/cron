@@ -9,7 +9,7 @@ on:
 jobs:
   run-wan:
     runs-on: ubuntu-latest
-    timeout-minutes: 360   # max allowed (6 hours)
+    timeout-minutes: 720   # max allowed (12 hours)
 
     steps:
       - name: Checkout repository
