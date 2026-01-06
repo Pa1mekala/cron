@@ -1,0 +1,33 @@
+name: Run WAN Animation Job
+
+on:
+  workflow_dispatch:   # manual trigger
+  push:
+    branches:
+      - main
+
+jobs:
+  run-wan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360   # max allowed (6 hours)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run animation script
+        run: node app.js
+
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: wan-result
+          path: result.txt
