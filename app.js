@@ -10,8 +10,14 @@ const IMAGE_URL =
 const VIDEO_URL =
   "https://raw.githubusercontent.com/Pa1mekala37/rawCont/main/Video-995.mp4";
 
-const MAX_RETRIES = 10;
+const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 15000;
+
+// Hard timeout per attempt (10 hours)
+const MAX_WAIT_MS = 12 * 60 * 60 * 1000; // 12 hours in ms
+
+// Heartbeat log interval (3 minutes)
+const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes in ms
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -41,37 +47,58 @@ async function runOnce(attempt) {
 
   const EVENT_ID = match[1];
   console.log("✅ EVENT_ID:", EVENT_ID);
-  console.log("⏳ Waiting for stream data...");
+  console.log("⏳ Waiting for Gradio stream...");
 
-  // 2️⃣ Stream (Node.js-compatible)
+  // 2️⃣ Stream response (Node.js safe)
   const streamRes = await fetch(`${POST_URL}/${EVENT_ID}`);
   const decoder = new TextDecoder();
-
   let buffer = "";
 
-  for await (const chunk of streamRes.body) {
-    const text = decoder.decode(chunk);
-    buffer += text;
+  // Heartbeat to prevent GitHub Actions idle timeout
+  const heartbeat = setInterval(() => {
+    console.log("still waiting for Gradio response...");
+  }, HEARTBEAT_INTERVAL_MS);
 
-    const events = buffer.split("\n\n");
-    buffer = events.pop(); // keep incomplete chunk
+  // Hard timeout
+  const timeout = setTimeout(() => {
+    clearInterval(heartbeat);
+    console.error("⏰ Timed out waiting for Gradio response (10 hours)");
+    process.exit(1);
+  }, MAX_WAIT_MS);
 
-    for (const e of events) {
-      if (e.includes("event: error")) {
-        throw new Error("Gradio returned error event");
-      }
+  try {
+    for await (const chunk of streamRes.body) {
+      const text = decoder.decode(chunk);
+      buffer += text;
 
-      if (e.includes("event: data") && e.includes("path")) {
-        console.log("\n🎉 SUCCESS:");
-        console.log(e);
+      const events = buffer.split("\n\n");
+      buffer = events.pop();
 
-        fs.writeFileSync("result.txt", e);
-        return e;
+      for (const e of events) {
+        if (e.includes("event: error")) {
+          throw new Error("Gradio returned error event");
+        }
+
+        if (e.includes("event: data") && e.includes("path")) {
+          console.log("\n🎉 SUCCESS:");
+          console.log(e);
+
+          fs.writeFileSync("result.txt", e);
+
+          clearInterval(heartbeat);
+          clearTimeout(timeout);
+
+          return e;
+        }
       }
     }
-  }
 
-  throw new Error("Stream ended without success");
+    throw new Error("Stream ended without success");
+  } catch (err) {
+    clearInterval(heartbeat);
+    clearTimeout(timeout);
+    throw err;
+  }
 }
 
 async function runWithRetry() {
